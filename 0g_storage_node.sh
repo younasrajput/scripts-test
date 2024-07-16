@@ -100,6 +100,18 @@ sudo systemctl enable zgs
 sudo systemctl start zgs
 sudo systemctl status zgs
 
+echo "11. Enabling required ports..."
+if ! sudo ufw status | grep -q "Status: active"; then
+    sudo ufw enable
+fi
+sudo ufw allow 1234
+sudo ufw allow 5678
+sudo ufw allow 8545
+sudo ufw reload
+
+# Restart the node
+sudo systemctl restart zgs
+
 # 11. Checking log files
 echo "11. Checking log files..."
 ls -lt $ZGS_LOG_DIR
