@@ -3,119 +3,106 @@
 # Load the logo from the GitHub repository
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Paknodesarmy/logo/main/banner.sh)"
 
-# 1. Install Dependencies
-echo "1. Installing Dependencies..."
 sudo apt-get update
-sudo apt-get install -y git cargo clang cmake build-essential
+sudo apt-get install -y clang cmake build-essential
 
-# 2. Install Rustup
-echo "2. Installing Rustup..."
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-source "$HOME/.cargo/env"
-
-# 3. Install GO
-echo "3. Installing GO..."
-cd $HOME && \
-ver="1.22.0" && \
-sudo rm -rf /usr/local/go && \
-sudo curl -fsSL "https://golang.org/dl/go$ver.linux-amd64.tar.gz" | sudo tar -C /usr/local -xzf - && \
-grep -qxF 'export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin' ~/.bash_profile || echo 'export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin' >> ~/.bash_profile && \
-source ~/.bash_profile && \
+# Install Go
+cd $HOME
+ver="1.22.0"
+wget "https://golang.org/dl/go$ver.linux-amd64.tar.gz"
+sudo rm -rf /usr/local/go
+sudo tar -C /usr/local -xzf "go$ver.linux-amd64.tar.gz"
+rm "go$ver.linux-amd64.tar.gz"
+echo "export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin" >> ~/.bash_profile
+source ~/.bash_profile
 go version
 
-# 4. Build Binary
-echo "4. Building Binary..."
-cd $HOME
-git clone -b v0.3.3 https://github.com/0glabs/0g-storage-node.git
-cd 0g-storage-node
-git submodule update --init
-cargo build --release
-sudo mv "$HOME/0g-storage-node/target/release/zgs_node" /usr/local/bin
+# Install rustup
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-# 5. Set Up Environment Variables
-echo "5. Setting Up Environment Variables..."
+# Download and build the 0g-storage-node binary
+rm -rf 0g-storage-node
+git clone https://github.com/0glabs/0g-storage-node.git
+cd 0g-storage-node
+git checkout tags/v0.3.4
+git submodule update --init
+sudo apt install -y cargo
+cargo build --release
+
+# Set environment variables
+read -p $'\033[34mEnter json-rpc: \033[0m' BLOCKCHAIN_RPC_ENDPOINT
+echo -e "Current json-rpc: \033[32m$BLOCKCHAIN_RPC_ENDPOINT\033[0m"
+
+result=$(curl -s -X POST $BLOCKCHAIN_RPC_ENDPOINT -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' | jq -r '.result' | xargs printf "%d\n")
+echo -e "\n\033[32mCurrent Block Number:\033[0m \033[36m$result\033[0m"
+
 ENR_ADDRESS=$(wget -qO- eth0.me)
-echo "export ENR_ADDRESS=${ENR_ADDRESS}"
-cat <<EOF >> ~/.bash_profile
-export ENR_ADDRESS=${ENR_ADDRESS}
-export ZGS_CONFIG_FILE="$HOME/0g-storage-node/run/config.toml"
-export ZGS_LOG_DIR="$HOME/0g-storage-node/run/log"
-export ZGS_LOG_CONFIG_FILE="$HOME/0g-storage-node/run/log_config"
-EOF
+echo "export ENR_ADDRESS=${ENR_ADDRESS}" >> ~/.bash_profile
+echo 'export ZGS_LOG_DIR="$HOME/0g-storage-node/run/log"' >> ~/.bash_profile
+echo 'export ZGS_LOG_SYNC_BLOCK="401178"' >> ~/.bash_profile
+echo 'export LOG_CONTRACT_ADDRESS="0xB7e39604f47c0e4a6Ad092a281c1A8429c2440d3"' >> ~/.bash_profile
+echo 'export MINE_CONTRACT="0x6176AA095C47A7F79deE2ea473B77ebf50035421"' >> ~/.bash_profile
+echo "export BLOCKCHAIN_RPC_ENDPOINT=\"$BLOCKCHAIN_RPC_ENDPOINT\"" >> ~/.bash_profile
+
 source ~/.bash_profile
 
-# 6. Store Miner Key
-echo "6. Storing Miner Key..."
-read -p "Enter your private key for miner_key configuration: " PRIVATE_KEY && echo
+echo -e "\n\033[31mCHECK YOUR STORAGE NODE VARIABLES\033[0m\n\nLOG_CONTRACT_ADDRESS: $LOG_CONTRACT_ADDRESS\nMINE_CONTRACT: $MINE_CONTRACT\nZGS_LOG_SYNC_BLOCK: $ZGS_LOG_SYNC_BLOCK\nBLOCKCHAIN_RPC_ENDPOINT: $BLOCKCHAIN_RPC_ENDPOINT\n\n\033[32m\"www.josephtran.xyz\" - Joseph Tran\033[0m"
 
-# 7. Create Network & DB Directory
-echo "7. Creating Network & DB Directory..."
-mkdir -p "$HOME/0g-storage-node/network" "$HOME/0g-storage-node/db"
+read -sp $'\033[34mEnter your private key: \033[0m' PRIVATE_KEY
+echo -e "\n\033[32m$PRIVATE_KEY\033[0m"
 
-# 8. Update Config File
-echo "8. Updating Config File..."
-read -p "Enter the blockchain RPC endpoint (default: https://jsonrpc.0g-test.paknodesarmy.xyz): " RPC_ENDPOINT
-RPC_ENDPOINT=${RPC_ENDPOINT:-"https://jsonrpc.0g-test.paknodesarmy.xyz"}
+sed -i '
+s|^\s*#\?\s*network_dir\s*=.*|network_dir = "network"|
+s|^\s*#\?\s*network_enr_address\s*=.*|network_enr_address = "'"$ENR_ADDRESS"'"|
+s|^\s*#\?\s*network_enr_tcp_port\s*=.*|network_enr_tcp_port = 1234|
+s|^\s*#\?\s*network_enr_udp_port\s*=.*|network_enr_udp_port = 1234|
+s|^\s*#\?\s*network_libp2p_port\s*=.*|network_libp2p_port = 1234|
+s|^\s*#\?\s*network_discovery_port\s*=.*|network_discovery_port = 1234|
+s|^\s*#\s*rpc_listen_address\s*=.*|rpc_listen_address = "0.0.0.0:5678"|
+s|^\s*#\?\s*rpc_enabled\s*=.*|rpc_enabled = true|
+s|^\s*#\?\s*db_dir\s*=.*|db_dir = "db"|
+s|^\s*#\?\s*log_config_file\s*=.*|log_config_file = "log_config"|
+s|^\s*#\?\s*log_directory\s*=.*|log_directory = "log"|
+s|^\s*#\?\s*network_boot_nodes\s*=.*|network_boot_nodes = \["/ip4/54.219.26.22/udp/1234/p2p/16Uiu2HAmTVDGNhkHD98zDnJxQWu3i1FL1aFYeh9wiQTNu4pDCgps","/ip4/52.52.127.117/udp/1234/p2p/16Uiu2HAkzRjxK2gorngB1Xq84qDrT4hSVznYDHj6BkbaE4SGx9oS","/ip4/18.167.69.68/udp/1234/p2p/16Uiu2HAm2k6ua2mGgvZ8rTMV8GhpW71aVzkQWy7D37TTDuLCpgmX"]|
+s|^\s*#\?\s*log_contract_address\s*=.*|log_contract_address = "'"$LOG_CONTRACT_ADDRESS"'"|
+s|^\s*#\?\s*mine_contract_address\s*=.*|mine_contract_address = "'"$MINE_CONTRACT"'"|
+s|^\s*#\?\s*log_sync_start_block_number\s*=.*|log_sync_start_block_number = '"$ZGS_LOG_SYNC_BLOCK"'|
+s|^\s*#\?\s*blockchain_rpc_endpoint\s*=.*|blockchain_rpc_endpoint = "'"$BLOCKCHAIN_RPC_ENDPOINT"'"|
+s|^# \[sync\]|\[sync\]|
+s|^# auto_sync_enabled = false|auto_sync_enabled = true|
+s|^# find_peer_timeout = .*|find_peer_timeout = "10s"|
+' $HOME/0g-storage-node/run/config.toml
 
-sed -i 's|^\s*#\?\s*network_dir\s*=.*|network_dir = "/root/0g-storage-node/network"|' "$ZGS_CONFIG_FILE"
-sed -i "s|^\s*#\?\s*network_enr_address\s*=.*|network_enr_address = \"$ENR_ADDRESS\"|" "$ZGS_CONFIG_FILE"
-sed -i 's|^\s*#\?\s*network_enr_tcp_port\s*=.*|network_enr_tcp_port = 1234|' "$ZGS_CONFIG_FILE"
-sed -i 's|^\s*#\?\s*network_enr_udp_port\s*=.*|network_enr_udp_port = 1234|' "$ZGS_CONFIG_FILE"
-sed -i 's|^\s*#\?\s*network_libp2p_port\s*=.*|network_libp2p_port = 1234|' "$ZGS_CONFIG_FILE"
-sed -i 's|^\s*#\?\s*network_discovery_port\s*=.*|network_discovery_port = 1234|' "$ZGS_CONFIG_FILE"
-sed -i 's|^\s*#\?\s*network_target_peers\s*=.*|network_target_peers = 50|' "$ZGS_CONFIG_FILE"
-sed -i "s|^\s*#\?\s*blockchain_rpc_endpoint\s*=.*|blockchain_rpc_endpoint = \"$RPC_ENDPOINT\"|" "$ZGS_CONFIG_FILE"
-sed -i 's|^\s*#\?\s*log_contract_address\s*=.*|log_contract_address = "0x8873cc79c5b3b5666535C825205C9a128B1D75F1"|' "$ZGS_CONFIG_FILE"
-sed -i 's|^\s*#\?\s*log_sync_start_block_number\s*=.*|log_sync_start_block_number = 802|' "$ZGS_CONFIG_FILE"
-sed -i 's|^\s*#\?\s*rpc_enabled\s*=\s*true|rpc_enabled = true|' "$ZGS_CONFIG_FILE"
-sed -i 's|^\s*#\?\s*rpc_listen_address\s*=\s*"0.0.0.0:5678"|rpc_listen_address = "0.0.0.0:5678"|' "$ZGS_CONFIG_FILE"
-sed -i 's|^\s*#\?\s*db_dir\s*=.*|db_dir = "/root/0g-storage-node/db"|' "$ZGS_CONFIG_FILE"
-sed -i 's|^\s*#\?\s*log_config_file\s*=.*|log_config_file = "/root/0g-storage-node/run/log_config"|' "$ZGS_CONFIG_FILE"
-sed -i 's|^\s*#\?\s*log_directory\s*=.*|log_directory = "/root/0g-storage-node/run/log"|' "$ZGS_CONFIG_FILE"
-sed -i 's|^\s*#\?\s*mine_contract_address\s*=.*|mine_contract_address = "0x85F6722319538A805ED5733c5F4882d96F1C7384"|' "$ZGS_CONFIG_FILE"
-sed -i "s|^\s*#\?\s*miner_key\s*=.*|miner_key = \"$PRIVATE_KEY\"|" "$ZGS_CONFIG_FILE"
+sed -i '/^# miner_key = ""/c\miner_key = "'"$PRIVATE_KEY"'"' $HOME/0g-storage-node/run/config.toml
 
-# 9. Create Service File
-echo "9. Creating Service File..."
+grep -E "^(miner_key|network_dir|network_enr_address|network_enr_tcp_port|network_enr_udp_port|network_libp2p_port|network_discovery_port|rpc_listen_address|rpc_enabled|db_dir|log_config_file|log_contract_address|mine_contract_address|log_sync_start_block_number|blockchain_rpc_endpoint|auto_sync_enabled|find_peer_timeout)" $HOME/0g-storage-node/run/config.toml
+
+# Create systemd service
 sudo tee /etc/systemd/system/zgs.service > /dev/null <<EOF
 [Unit]
-Description=0G Storage Node
+Description=ZGS Node
 After=network.target
 
 [Service]
 User=$USER
-Type=simple
-ExecStart=/usr/local/bin/zgs_node --config $HOME/0g-storage-node/run/config.toml
+WorkingDirectory=$HOME/0g-storage-node/run
+ExecStart=$HOME/0g-storage-node/target/release/zgs_node --config $HOME/0g-storage-node/run/config.toml
 Restart=on-failure
+RestartSec=10
 LimitNOFILE=65535
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# 10. Start Storage Node
-echo "10. Starting Storage Node..."
+# Start node
 sudo systemctl daemon-reload
 sudo systemctl enable zgs
 sudo systemctl start zgs
 sudo systemctl status zgs
 
-echo "11. Enabling required ports..."
-if ! sudo ufw status | grep -q "Status: active"; then
-    sudo ufw enable
-fi
-sudo ufw allow 1234
-sudo ufw allow 5678
-sudo ufw allow 8545
-sudo ufw reload
-
-# Restart the node
-sudo systemctl restart zgs
-
-# 11. Checking log files
-echo "11. Checking log files..."
-ls -lt $ZGS_LOG_DIR
-echo "Full logs command: tail -f $ZGS_LOG_DIR/$(ls -Art $ZGS_LOG_DIR | tail -n 1)"
-echo "tx_seq-only logs command: tail -f $ZGS_LOG_DIR/$(ls -Art $ZGS_LOG_DIR | tail -n 1) | grep tx_seq:"
-
-echo "Node setup completed successfully!"
+# Check logs
+echo -e "\n\033[32mFull log:\033[0m"
+tail -f ~/0g-storage-node/run/log/zgs.log.$(TZ=UTC date +%Y-%m-%d)
+echo -e "\n\033[32mtx_seq log:\033[0m"
+tail -f ~/0g-storage-node/run/log/zgs.log.$(TZ=UTC date +%Y-%m-%d) | grep tx_seq
